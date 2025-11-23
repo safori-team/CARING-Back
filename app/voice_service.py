@@ -365,8 +365,11 @@ class VoiceService:
             
             # mark text done and try aggregate
             mark_text_done(db, voice_id)
-            try_aggregate(db, voice_id)
-            
+
+            if try_aggregate(db, voice_id):
+                from .services.chatbot_integration import send_analysis_to_chatbot
+                send_analysis_to_chatbot(db, voice_id)
+
             print(f"STT → NLP 처리 완료: voice_id={voice_id}")
             
         except Exception as e:
@@ -506,7 +509,11 @@ class VoiceService:
             
             # mark audio done and try aggregate
             mark_audio_done(db, voice_id)
-            try_aggregate(db, voice_id)
+
+            if try_aggregate(db, voice_id):
+                from .services.chatbot_integration import send_analysis_to_chatbot
+                send_analysis_to_chatbot(db, voice_id)
+
             print(f"[voice_analyze] saved voice_id={voice_id} top={top_emotion} conf_bps={top_conf_bps}", flush=True)
         except Exception as e:
             print(f"Audio emotion background error: {e}", flush=True)
