@@ -260,6 +260,7 @@ admin_router = APIRouter(prefix="/admin", tags=["admin"])
 nlp_router   = APIRouter(prefix="/nlp", tags=["nlp"])
 test_router  = APIRouter(prefix="/test", tags=["test"])
 questions_router = APIRouter(prefix="/questions", tags=["questions"])
+analyze_router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 # Health
 @app.get("/health")
@@ -972,6 +973,35 @@ async def test_fcm_send(
     result = svc.send_notification_to_tokens([token], title, body)
     return {"success": True, "result": result}
 
+def get_analyze_chat_service_dep(db: Session = Depends(get_db)):
+    """AnalyzeChatService 의존성 함수"""
+    from .services.analyze_chat_service import get_analyze_chat_service
+    return get_analyze_chat_service(db)
+
+
+@analyze_router.post("/analyze/chat")
+async def analyze_chat(
+    session_id: str = Form(...),
+    user_id: str = Form(...),
+    question: str = Form(...),
+    file: UploadFile = File(...),
+    analyze_chat_service: "AnalyzeChatService" = Depends(get_analyze_chat_service_dep)
+):
+    """
+    음성 파일을 받아 STT, 감정 분석 후 외부 chatbot API로 전송
+    """
+    try:
+        return await analyze_chat_service.analyze_and_send(
+            file=file,
+            session_id=session_id,
+            user_id=user_id,
+            question=question
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 # ---------------- router 등록 ----------------
 app.include_router(users_router)
 app.include_router(care_router)
@@ -980,3 +1010,4 @@ app.include_router(nlp_router)
 app.include_router(test_router)
 app.include_router(questions_router)
 app.include_router(composite_router.router)
+app.include_router(analyze_router)
