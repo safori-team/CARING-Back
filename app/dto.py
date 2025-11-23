@@ -167,7 +167,7 @@ class VoiceAnalyzePreviewResponse(BaseModel):
     sad_bps: int
     neutral_bps: int
     angry_bps: int
-    anxiety_bps: int  # fear -> anxiety (출력용)
+    anxiety_bps: Optional[int] = 0  # fear -> anxiety (출력용)
     surprise_bps: int
     top_emotion: Optional[str] = None
     top_confidence_bps: Optional[int] = None
