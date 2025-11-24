@@ -997,8 +997,8 @@ async def analyze_chat(
             user_id=user_id,
             question=question
         )
-        except AppException:
-            raise
+    except AppException:
+        raise
     except Exception as exc:
         raise InternalServerException(
             "Internal server error while analyzing chat"
