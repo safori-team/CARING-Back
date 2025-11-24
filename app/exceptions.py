@@ -39,3 +39,15 @@ class InternalServerException(AppException):
     def __init__(self, message: str):
         super().__init__(status_code=500, message=message)
 
+
+class NotFoundException(AppException):
+    """리소스를 찾을 수 없음 (404)"""
+    def __init__(self, message: str):
+        super().__init__(status_code=404, message=message)
+
+
+class ExternalAPIException(AppException):
+    """외부 API 호출 오류 (가변 상태 코드)"""
+    def __init__(self, status_code: int, message: str):
+        super().__init__(status_code=status_code, message=message)
+

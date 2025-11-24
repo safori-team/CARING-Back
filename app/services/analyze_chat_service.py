@@ -6,7 +6,7 @@ from io import BytesIO
 from datetime import datetime
 from sqlalchemy.orm import Session
 import httpx
-from fastapi import UploadFile, HTTPException
+from fastapi import UploadFile
 
 from ..services.va_fusion import fuse_VA
 from ..nlp_service import analyze_text_sentiment
@@ -14,6 +14,13 @@ from ..emotion_service import analyze_voice_emotion
 from ..stt_service import transcribe_voice
 from ..s3_service import upload_fileobj
 from ..auth_service import get_auth_service
+from ..exceptions import (
+    ValidationException,
+    InternalServerException,
+    RuntimeException,
+    NotFoundException,
+    ExternalAPIException,
+)
 
 class AnalyzeChatService:
     """음성 파일 분석 및 chatbot API 전송 서비스"""
@@ -46,7 +53,7 @@ class AnalyzeChatService:
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         unique_id = str(uuid.uuid4())[:8]  # UUID 앞 8자리만 사용
         if file.filename:
-            name, ext = os_module.path.splitext(file.filename)
+            name, ext = os.path.splitext(file.filename)
             filename = f"{name}_{current_time}_{unique_id}{ext}"
         else:
             filename = f"audio_{current_time}_{unique_id}.wav"
@@ -101,7 +108,7 @@ class AnalyzeChatService:
         """S3에 파일 업로드"""
         bucket = os.getenv("S3_BUCKET_NAME")
         if not bucket:
-            raise HTTPException(status_code=500, detail="S3_BUCKET_NAME not configured")
+            raise InternalServerException("S3_BUCKET_NAME not configured")
         
         # S3 키 생성: {session_id}/{user_id}/{filename}
         s3_key = f"{session_id}/{user_id}/{filename}" if session_id and user_id else f"chat/{filename}"
@@ -130,11 +137,11 @@ class AnalyzeChatService:
         stt_result = transcribe_voice(wrapped_file)
         
         if stt_result.get("error"):
-            raise HTTPException(status_code=400, detail=f"STT failed: {stt_result.get('error')}")
+            raise RuntimeException(f"STT failed: {stt_result.get('error')}")
         
         content = stt_result.get("transcript", "")
         if not content:
-            raise HTTPException(status_code=400, detail="STT result is empty")
+            raise ValidationException("STT result is empty")
         
         return content
     
@@ -159,14 +166,14 @@ class AnalyzeChatService:
         wrapped_file.file.seek(0)
         emotion_result = analyze_voice_emotion(wrapped_file)
         if emotion_result.get("error"):
-            raise HTTPException(status_code=400, detail=f"Emotion analysis failed: {emotion_result.get('error')}")
+            raise RuntimeException(f"Emotion analysis failed: {emotion_result.get('error')}")
         
         audio_probs = emotion_result.get("emotion_scores", {})
         
         # 3-2. 텍스트 감정 분석
         text_sentiment = analyze_text_sentiment(text_content, language_code="ko")
         if text_sentiment.get("error"):
-            raise HTTPException(status_code=400, detail=f"Text sentiment analysis failed: {text_sentiment.get('error')}")
+            raise RuntimeException(f"Text sentiment analysis failed: {text_sentiment.get('error')}")
         
         sentiment_data = text_sentiment.get("sentiment", {})
         text_score = sentiment_data.get("score", 0.0)  # [-1, 1]
@@ -209,12 +216,12 @@ class AnalyzeChatService:
     def _get_user_name(self, user_id: str) -> str:
         """사용자 이름 조회"""
         if not user_id:
-            raise HTTPException(status_code=400, detail="user_id is required")
+            raise ValidationException("user_id is required")
         
         auth_service = get_auth_service(self.db)
         user = auth_service.get_user_by_username(user_id)
         if not user:
-            raise HTTPException(status_code=404, detail=f"User not found: {user_id}")
+            raise NotFoundException(f"User not found: {user_id}")
         
         return user.name
     
@@ -238,12 +245,10 @@ class AnalyzeChatService:
             "user_name": user_name
         }
         
-        chatbot_url = os.getenv(
-            "CHATBOT_API_URL"
-        )
+        chatbot_url = os.getenv("CHATBOT_API_URL")
         
         if not chatbot_url:
-            raise HTTPException(status_code=500, detail="CHATBOT_API_URL not configured")
+            raise InternalServerException("CHATBOT_API_URL not configured")
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -254,15 +259,22 @@ class AnalyzeChatService:
                 )
                 response.raise_for_status()
                 return response.json()
-        except httpx.HTTPStatusError as e:
-            # HTTP 에러 응답을 그대로 반환
-            try:
-                error_response = e.response.json()
-                raise HTTPException(status_code=e.response.status_code, detail=error_response)
-            except:
-                raise HTTPException(status_code=e.response.status_code, detail=f"External API error: {e.response.text}")
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=500, detail=f"External API request failed: {str(e)}")
+        except httpx.HTTPStatusError as exc:
+            error_message = self._extract_external_error(exc)
+            raise ExternalAPIException(status_code=exc.response.status_code, message=error_message)
+        except httpx.RequestError as exc:
+            raise ExternalAPIException(status_code=500, message=f"External API request failed: {str(exc)}")
+
+    @staticmethod
+    def _extract_external_error(exc: httpx.HTTPStatusError) -> str:
+        """외부 API 예외 메시지를 문자열로 변환"""
+        try:
+            json_body = exc.response.json()
+            if isinstance(json_body, dict) and "message" in json_body:
+                return str(json_body["message"])
+            return str(json_body)
+        except Exception:
+            return f"External API error: {exc.response.text}"
 
 
 def get_analyze_chat_service(db: Session) -> AnalyzeChatService:
