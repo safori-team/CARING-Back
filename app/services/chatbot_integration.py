@@ -51,7 +51,7 @@ def send_analysis_to_chatbot(voice_id: int, db: Session = Depends(get_db)):
         logger.error(f"[ChatbotIntegration] Database query failed for voice_id={voice_id}: {e}", exc_info=True)
         raise DatabaseException(
             message="Failed to retrieve data due to an internal database error."
-        )
+        ) from e
 
     if not result:
         logger.warning(f"[ChatbotIntegration] Data not found for voice_id={voice_id}. Skipping SQS send.")
@@ -78,7 +78,7 @@ def send_analysis_to_chatbot(voice_id: int, db: Session = Depends(get_db)):
         logger.error(f"[ChatbotIntegration] Failed to process or send SQS: {e}", exc_info=True)
         raise InternalServerException(
             message=f"An unexpected error occurred during SQS preparation or transmission: {type(e).__name__}"
-        )
+        ) from e
 
 # --- 유틸리티 함수 분리 ---
 
