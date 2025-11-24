@@ -5,7 +5,6 @@ on:
     branches: [ docker ]
   workflow_dispatch:
 
-# OIDC 토큰 발급을 위해 필수 권한 설정
 permissions:
   id-token: write
   contents: read
@@ -36,18 +35,12 @@ jobs:
         cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache
         cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache,mode=max
 
-    # --- AWS 배포 단계 (IAM Role + SSM) ---
-
-    # 1. AWS IAM Role로 임시 자격 증명 획득 (OIDC)
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
         aws-region: ${{ secrets.AWS_REGION }}
 
-    # 2. AWS SSM을 통해 EC2에 도커 배포 명령 전송
-    # - EC2 내부 경로: /home/ubuntu/caring-voice/credentials
-    # - 컨테이너 내부 경로: /caring-voice/credentials
     - name: Deploy via AWS SSM
       run: |
         aws ssm send-command \
@@ -57,7 +50,7 @@ jobs:
             "echo [Deploy] Starting deployment process...",
             
             "echo [Deploy] 1. Logging into Docker Hub...",
-            "docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}",
+            "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin",
             
             "echo [Deploy] 2. Pulling latest image...",
             "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
