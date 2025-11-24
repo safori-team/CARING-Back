@@ -997,10 +997,12 @@ async def analyze_chat(
             user_id=user_id,
             question=question
         )
-    except AppException as exc:
-        raise exc
-    except Exception:
-        raise InternalServerException("Internal server error while analyzing chat")
+        except AppException:
+            raise
+    except Exception as exc:
+        raise InternalServerException(
+            "Internal server error while analyzing chat"
+        ) from exc
 
 # ---------------- router 등록 ----------------
 app.include_router(users_router)
