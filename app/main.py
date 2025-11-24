@@ -979,7 +979,7 @@ def get_analyze_chat_service_dep(db: Session = Depends(get_db)):
     return get_analyze_chat_service(db)
 
 
-@analyze_router.post("/analyze/chat")
+@analyze_router.post("/chat")
 async def analyze_chat(
     session_id: str = Form(...),
     user_id: str = Form(...),

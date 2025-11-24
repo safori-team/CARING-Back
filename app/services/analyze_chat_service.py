@@ -46,15 +46,13 @@ class AnalyzeChatService:
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         unique_id = str(uuid.uuid4())[:8]  # UUID 앞 8자리만 사용
         if file.filename:
-            # 원본 파일명이 있으면 확장자 추출 후 고유한 이름 생성
-            import os as os_module
             name, ext = os_module.path.splitext(file.filename)
             filename = f"{name}_{current_time}_{unique_id}{ext}"
         else:
             filename = f"audio_{current_time}_{unique_id}.wav"
         
         # 1. S3 파일 업로드 (별도 스레드에서 실행)
-        s3_key = await asyncio.to_thread(
+        await asyncio.to_thread(
             self._upload_to_s3,
             file_content,
             filename,
