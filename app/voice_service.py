@@ -368,7 +368,7 @@ class VoiceService:
 
             if try_aggregate(db, voice_id):
                 from .services.chatbot_integration import send_analysis_to_chatbot
-                send_analysis_to_chatbot(db, voice_id)
+                send_analysis_to_chatbot(voice_id, db)
 
             print(f"STT → NLP 처리 완료: voice_id={voice_id}")
             
@@ -512,7 +512,7 @@ class VoiceService:
 
             if try_aggregate(db, voice_id):
                 from .services.chatbot_integration import send_analysis_to_chatbot
-                send_analysis_to_chatbot(db, voice_id)
+                send_analysis_to_chatbot(voice_id, db)
 
             print(f"[voice_analyze] saved voice_id={voice_id} top={top_emotion} conf_bps={top_conf_bps}", flush=True)
         except Exception as e:
