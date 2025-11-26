@@ -94,7 +94,8 @@ class AnalyzeChatService:
             emotion=emotion_data,
             question=question,
             user_id=user_id,
-            user_name=user_name
+            user_name=user_name,
+            session_id=session_id
         )
     
     def _upload_to_s3(
@@ -231,18 +232,19 @@ class AnalyzeChatService:
         emotion: Dict[str, Any],
         question: str,
         user_id: str,
-        user_name: str
+        user_name: str,
+        session_id: str
     ) -> Dict[str, Any]:
         """외부 chatbot API로 전송"""
         recorded_at = datetime.now().isoformat()
         
+        # (endpoint: /chatbot/voice-reframing)
         request_payload = {
-            "content": content,
-            "emotion": emotion,
-            "question": question,
-            "recorded_at": recorded_at,
             "user_id": user_id,
-            "user_name": user_name
+            "session_id": session_id,
+            "user_input": content,
+            "user_name": user_name,
+            "emotion": emotion
         }
         
         chatbot_url = os.getenv("CHATBOT_API_URL")
