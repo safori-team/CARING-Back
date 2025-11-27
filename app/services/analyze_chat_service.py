@@ -12,7 +12,7 @@ from ..services.va_fusion import fuse_VA
 from ..nlp_service import analyze_text_sentiment
 from ..emotion_service import analyze_voice_emotion
 from ..stt_service import transcribe_voice
-from ..s3_service import upload_fileobj
+from ..s3_service import upload_fileobj, get_presigned_url
 from ..auth_service import get_auth_service
 from ..exceptions import (
     ValidationException,
@@ -24,7 +24,7 @@ from ..exceptions import (
 
 class AnalyzeChatService:
     """음성 파일 분석 및 chatbot API 전송 서비스"""
-    
+
     def __init__(self, db: Session):
         self.db = db
     
@@ -51,15 +51,14 @@ class AnalyzeChatService:
         file_content = await file.read()
         # 파일명을 현재 시간과 UUID를 포함한 형식으로 생성 (중복 방지)
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]  # UUID 앞 8자리만 사용
+        unique_id = str(uuid.uuid4())[:8]
         if file.filename:
             name, ext = os.path.splitext(file.filename)
             filename = f"{name}_{current_time}_{unique_id}{ext}"
         else:
             filename = f"audio_{current_time}_{unique_id}.wav"
-        
-        # 1. S3 파일 업로드 (별도 스레드에서 실행)
-        await asyncio.to_thread(
+
+        s3_key = await asyncio.to_thread(
             self._upload_to_s3,
             file_content,
             filename,
@@ -67,16 +66,22 @@ class AnalyzeChatService:
             user_id,
             file.content_type
         )
-        
-        # 2. STT (음성 → 텍스트) - 별도 스레드에서 실행
+
+        # S3 Key로 Presigned URL 생성
+        bucket = os.getenv("S3_BUCKET_NAME")
+        s3_url = None
+        if bucket and s3_key:
+            s3_url = get_presigned_url(bucket, s3_key, expires_in=3600)
+
+        # 2. STT (음성 → 텍스트)
         content = await asyncio.to_thread(
             self._transcribe_audio,
             file_content,
             filename,
             file.content_type
         )
-        
-        # 3. 음성 감정 분석 - 별도 스레드에서 실행
+
+        # 3. 음성 감정 분석
         emotion_data = await asyncio.to_thread(
             self._analyze_emotion,
             file_content,
@@ -84,18 +89,19 @@ class AnalyzeChatService:
             file.content_type,
             content
         )
-        
-        # 4. 사용자 정보 조회 (DB 세션은 스레드 안전하지 않으므로 메인 스레드에서 실행)
+
+        # 4. 사용자 정보 조회
         user_name = self._get_user_name(user_id)
-        
-        # 5. 외부 API 호출
+
+        # 5. 외부 API 호출 (s3_url 전달)
         return await self._send_to_chatbot(
             content=content,
             emotion=emotion_data,
             question=question,
             user_id=user_id,
             user_name=user_name,
-            session_id=session_id
+            session_id=session_id,
+            s3_url=s3_url
         )
     
     def _upload_to_s3(
@@ -162,7 +168,7 @@ class AnalyzeChatService:
                 self.content_type = content_type
         
         wrapped_file = FileWrapper(file_content, filename, content_type)
-        
+
         # 3-1. Audio 감정 분석
         wrapped_file.file.seek(0)
         emotion_result = analyze_voice_emotion(wrapped_file)
@@ -233,18 +239,19 @@ class AnalyzeChatService:
         question: str,
         user_id: str,
         user_name: str,
-        session_id: str
+        session_id: str,
+        s3_url: str = None  # [추가]
     ) -> Dict[str, Any]:
         """외부 chatbot API로 전송"""
-        recorded_at = datetime.now().isoformat()
-        
+
         # (endpoint: /chatbot/voice-reframing)
         request_payload = {
             "user_id": user_id,
             "session_id": session_id,
             "user_input": content,
             "user_name": user_name,
-            "emotion": emotion
+            "emotion": emotion,
+            "s3_url": s3_url  # [추가] Chatbot 요청 바디에 포함
         }
         
         chatbot_url = os.getenv("CHATBOT_API_URL")
@@ -282,4 +289,3 @@ class AnalyzeChatService:
 def get_analyze_chat_service(db: Session) -> AnalyzeChatService:
     """AnalyzeChatService 인스턴스 생성"""
     return AnalyzeChatService(db)
-
