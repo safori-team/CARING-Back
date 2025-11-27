@@ -60,7 +60,7 @@ def send_analysis_to_chatbot(voice_id: int, db: Session = Depends(get_db)):
         bucket = os.getenv("S3_BUCKET_NAME")
         s3_url = None
         if bucket and voice.voice_key:
-            s3_url = get_presigned_url(bucket, voice.voice_key, expires_in=3600 * 24)
+            s3_url = get_presigned_url(bucket, voice.voice_key, expires_in=3600 * 24 * 14)
 
         message_body = _create_message_body(voice, content, composite, user, question_text, s3_url)
 
