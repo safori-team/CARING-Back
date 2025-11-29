@@ -43,6 +43,19 @@ class VoiceService:
         base_name = original_filename.rsplit('.', 1)[0] if '.' in original_filename else original_filename
         wav_filename = f"{base_name}.wav"
         
+        print(f"[convert] START - original_filename={original_filename}, ext={ext}, input_size={len(file_content)} bytes")
+        
+        # 파일 헤더 검증 (m4a/mp4 파일인지 확인)
+        if ext in {'m4a', 'mp4', '3gp', '3g2', 'mov'} and len(file_content) >= 12:
+            # M4A/MP4 파일은 보통 'ftyp' atom으로 시작
+            header_hex = file_content[:12].hex()
+            has_ftyp = b'ftyp' in file_content[:20]
+            has_moov = b'moov' in file_content
+            print(f"[convert] M4A 헤더 검증 - header_hex={header_hex}, has_ftyp={has_ftyp}, has_moov={has_moov}")
+            
+            if not has_ftyp:
+                print(f"[convert] WARNING: M4A 파일이지만 ftyp atom이 없음, 손상된 파일일 수 있음")
+        
         # 입력 파일 크기 검증 (최소 크기 확인)
         if len(file_content) < 100:
             print(f"[convert] 입력 파일이 너무 작음: {len(file_content)} bytes, librosa로 폴백")
@@ -61,8 +74,13 @@ class VoiceService:
                 tmp_in = tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False)
                 tmp_in.write(file_content)
                 tmp_in.flush()
+                os.fsync(tmp_in.fileno())  # 강제로 디스크에 쓰기
                 tmp_in_path = tmp_in.name
                 tmp_in.close()
+                
+                # 파일이 제대로 쓰여졌는지 확인
+                written_size = os.path.getsize(tmp_in_path)
+                print(f"[convert] 임시파일 생성 완료 - path={tmp_in_path}, written_size={written_size} bytes")
 
                 tmp_out = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                 tmp_out_path = tmp_out.name
