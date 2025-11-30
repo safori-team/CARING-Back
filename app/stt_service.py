@@ -135,38 +135,52 @@ class GoogleSTTService:
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=sample_rate,
                 language_code=language_code,
+                audio_channel_count=1,
                 enable_automatic_punctuation=True,
                 enable_word_time_offsets=True,
-                model="latest_long",  # 최신 장시간 모델 사용
+                model="latest_long",
+                enable_spoken_emojis=False,
             )
             logger.info(
-                "[GoogleSTT] STT 요청 구성 완료 - sample_rate=%d, model=%s",
+                "[GoogleSTT] STT 요청 구성 완료 - sample_rate=%d, model=%s, enhanced=%s",
                 sample_rate,
                 "latest_long",
+                "enabled",
             )
             
             # STT 요청 실행 (타임아웃 적용)
-            logger.info("[GoogleSTT] STT 요청 시작 - timeout=%s", timeout_seconds)
+            logger.info("[GoogleSTT] STT 요청 시작 - timeout=%s, audio_duration=%.2fs", timeout_seconds, len(audio_data) / sample_rate)
             response = self.client.recognize(config=config, audio=audio, timeout=timeout_seconds)
             logger.info(
                 "[GoogleSTT] STT 응답 수신 - results=%d",
                 len(response.results),
             )
             
-            # 결과 처리
+            # 결과 처리 - 모든 results를 합쳐서 전체 텍스트 생성
             if response.results:
-                result = response.results[0]
-                transcript = result.alternatives[0].transcript
-                confidence = result.alternatives[0].confidence
+                # 모든 결과의 transcript를 합침 (전체 오디오 텍스트)
+                full_transcript = " ".join(
+                    result.alternatives[0].transcript 
+                    for result in response.results
+                )
+                # 평균 confidence 계산
+                confidences = [
+                    result.alternatives[0].confidence 
+                    for result in response.results 
+                    if result.alternatives[0].confidence > 0
+                ]
+                # TODO : confidence를 평균내서 보여줘도 괜찮을지 확인 필요
+                avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
                 
                 logger.info(
-                    "[GoogleSTT] STT 결과 파싱 완료 - has_transcript=%s, confidence=%.3f",
-                    bool(transcript),
-                    confidence,
+                    "[GoogleSTT] STT 결과 파싱 완료 - transcript_length=%d, num_results=%d, avg_confidence=%.3f",
+                    len(full_transcript),
+                    len(response.results),
+                    avg_confidence,
                 )
                 return {
-                    "transcript": transcript,
-                    "confidence": confidence,
+                    "transcript": full_transcript,
+                    "confidence": avg_confidence,
                     "language_code": language_code,
                     "audio_duration": len(audio_data) / sample_rate,
                     "sample_rate": sample_rate
