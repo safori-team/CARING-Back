@@ -1,6 +1,7 @@
 import os
 import asyncio
 import uuid
+import logging
 from typing import Dict, Any
 from io import BytesIO
 from datetime import datetime
@@ -14,6 +15,7 @@ from ..emotion_service import analyze_voice_emotion
 from ..stt_service import transcribe_voice
 from ..s3_service import upload_fileobj, get_presigned_url
 from ..auth_service import get_auth_service
+from ..voice_service import get_voice_service
 from ..exceptions import (
     ValidationException,
     InternalServerException,
@@ -22,11 +24,16 @@ from ..exceptions import (
     ExternalAPIException,
 )
 
+
+logger = logging.getLogger(__name__)
+
 class AnalyzeChatService:
     """음성 파일 분석 및 chatbot API 전송 서비스"""
 
     def __init__(self, db: Session):
         self.db = db
+        self.voice_service = get_voice_service(db)
+    
     
     async def analyze_and_send(
         self,
@@ -47,24 +54,53 @@ class AnalyzeChatService:
         Returns:
             Dict: 외부 API 응답
         """
-        # 파일 내용을 메모리에 저장 (여러 번 사용하기 위해)
+        logger.info(f"[AnalyzeChatService][analyze_and_send] START session_id={session_id}, user_id={user_id}, filename={getattr(file, 'filename', 'N/A')}, content_type={getattr(file, 'content_type', 'N/A')}")
+
+        content_type = getattr(file, "content_type", "") or ""
+
+        filename = file.filename or "upload"
+        lower_name = filename.lower()
+        allowed_ext = (lower_name.endswith('.wav') or lower_name.endswith('.m4a'))
+        allowed_ct = any(ct in content_type for ct in ("audio/wav", "audio/x-wav", "audio/m4a", "audio/x-m4a", "audio/mp4"))
+        if not (allowed_ext or allowed_ct):
+            return {
+                "success": False,
+                "message": "Only wav/m4a audio is allowed"
+            }
+        # 확장자 미포함/이상치인 경우 Content-Type 기반으로 보정
+        if not '.' in filename or (not lower_name.endswith('.wav') and not lower_name.endswith('.m4a')):
+            if "m4a" in content_type or "mp4" in content_type:
+                filename = (filename.rsplit('.', 1)[0] if '.' in filename else filename) + ".m4a"
+            else:
+                filename = (filename.rsplit('.', 1)[0] if '.' in filename else filename) + ".wav"
+        
+        # 4. 파일 읽기 및 WAV 변환 (비동기로 처리하여 블로킹 방지)
+        # 파일 포인터 초기화 후 읽기 (다른 STT 서비스와 동일한 패턴)
+        await file.seek(0)
         file_content = await file.read()
-        # 파일명을 현재 시간과 UUID를 포함한 형식으로 생성 (중복 방지)
-        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]
-        if file.filename:
-            name, ext = os.path.splitext(file.filename)
-            filename = f"{name}_{current_time}_{unique_id}{ext}"
-        else:
-            filename = f"audio_{current_time}_{unique_id}.wav"
+        
+        logger.info(f"[AnalyzeChatService][analyze_and_send] 파일 읽기 완료 - size={len(file_content)} bytes, filename={filename}")
+        
+        # 파일 크기 검증
+        if len(file_content) < 100:
+            logger.error(f"[AnalyzeChatService][analyze_and_send] 파일이 너무 작음 - size={len(file_content)} bytes")
+            return {
+                "success": False,
+                "message": f"File too small: {len(file_content)} bytes"
+            }
+        
+        # CPU 집약적 작업을 스레드 풀에서 실행
+        wav_content, wav_filename = await asyncio.to_thread(
+            self.voice_service._convert_to_wav, file_content, filename
+        )
 
         s3_key = await asyncio.to_thread(
             self._upload_to_s3,
-            file_content,
-            filename,
+            wav_content,
+            wav_filename,
             session_id,
             user_id,
-            file.content_type
+            content_type
         )
 
         # S3 Key로 Presigned URL 생성
@@ -76,17 +112,17 @@ class AnalyzeChatService:
         # 2. STT (음성 → 텍스트)
         content = await asyncio.to_thread(
             self._transcribe_audio,
-            file_content,
-            filename,
-            file.content_type
+            wav_content,
+            wav_filename,
+            content_type
         )
 
         # 3. 음성 감정 분석
         emotion_data = await asyncio.to_thread(
             self._analyze_emotion,
-            file_content,
-            filename,
-            file.content_type,
+            wav_content,
+            wav_filename,
+            "audio/wav",
             content
         )
 
@@ -133,14 +169,17 @@ class AnalyzeChatService:
         content_type: str
     ) -> str:
         """STT로 음성을 텍스트로 변환"""
-        # 파일 내용을 BytesIO로 래핑하여 UploadFile처럼 사용
+
+        # INFO 레벨은 기본 로거 설정에 따라 출력되지 않을 수 있으므로 WARNING으로 남겨 확실히 보이게 한다.
+        logger.warning("AnalyzeChat STT 시작 - filename=%s, content_type=%s", filename, content_type)
+
         class FileWrapper:
-            def __init__(self, content: bytes, filename: str, content_type: str):
+            def __init__(self, content: bytes, filename: str):
                 self.file = BytesIO(content)
                 self.filename = filename
-                self.content_type = content_type
+                self.content_type = "audio/m4a" if filename.endswith('.m4a') else "audio/wav"
         
-        wrapped_file = FileWrapper(file_content, filename, content_type)
+        wrapped_file = FileWrapper(file_content, filename)
         stt_result = transcribe_voice(wrapped_file)
         
         if stt_result.get("error"):
