@@ -71,7 +71,7 @@ class AnalyzeChatService:
         bucket = os.getenv("S3_BUCKET_NAME")
         s3_url = None
         if bucket and s3_key:
-            s3_url = get_presigned_url(bucket, s3_key, expires_in=3600 * 24 * 14)
+            s3_url = get_presigned_url(bucket, s3_key, expires_in=3600 * 24 * 7)
 
         # 2. STT (음성 → 텍스트)
         content = await asyncio.to_thread(
