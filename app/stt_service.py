@@ -169,7 +169,7 @@ class GoogleSTTService:
                     for result in response.results 
                     if result.alternatives[0].confidence > 0
                 ]
-                # TODO : confidence를 평균내서 보여줘도 괜찮을지 확인 필요
+                # TODO : 추후 Confidence가 낮으면 인식에서 제외하는 로직 추가
                 avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
                 
                 logger.info(
