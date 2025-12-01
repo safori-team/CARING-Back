@@ -28,10 +28,8 @@ jobs:
         id: config
         run: |
           echo "Bundling configuration files..."
-          # config-repo 폴더 내용을 tar.gz로 압축 (.git 제외)
-          tar -czf configs.tar.gz -C config-repo . --exclude=.git
+          tar -czf configs.tar.gz --exclude=.git -C config-repo .
           
-          # Base64로 인코딩 (줄바꿈 없이 -w 0)
           CONFIG_DATA=$(base64 -w 0 configs.tar.gz)
           echo "CONFIG_DATA=$CONFIG_DATA" >> $GITHUB_OUTPUT
 
