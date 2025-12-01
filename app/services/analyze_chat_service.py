@@ -299,7 +299,7 @@ class AnalyzeChatService:
             raise InternalServerException("CHATBOT_API_URL not configured")
         
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     chatbot_url,
                     json=request_payload,
