@@ -454,7 +454,14 @@ class VoiceService:
             sad = to_bps(probs.get("sad", probs.get("sadness", 0)))
             neutral = to_bps(probs.get("neutral", 0))
             angry = to_bps(probs.get("angry", probs.get("anger", 0)))
-            fear = to_bps(probs.get("fear", probs.get("fearful", 0)))
+            # fear_bps 컬럼에는 'fear' + 'anxiety' 계열을 모두 합산해서 저장한다.
+            # emotion_service에서 "불안"은 anxiety, "두려움/공포"는 fear 로 매핑되므로 둘을 같은 버킷으로 취급.
+            fear_prob = (
+                float(probs.get("fear", 0) or 0)
+                + float(probs.get("anxiety", 0) or 0)
+                + float(probs.get("fearful", 0) or 0)
+            )
+            fear = to_bps(fear_prob)
             surprise = to_bps(probs.get("surprise", probs.get("surprised", 0)))
 
             # 모델 응답 키 보정: emotion_service는 기본적으로 "emotion"을 반환
