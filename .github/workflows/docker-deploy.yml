@@ -14,59 +14,93 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Checkout Config Repository
+        uses: actions/checkout@v4
+        with:
+          repository: safori-team/Caring-Back-Env
+          token: ${{ secrets.GH_PAT }}
+          path: config-repo
 
-    - name: Login to Docker Hub (Build Server)
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Bundle Config Files
+        id: config
+        run: |
+          echo "Bundling configuration files..."
+          # config-repo 폴더 내용을 tar.gz로 압축 (.git 제외)
+          tar -czf configs.tar.gz -C config-repo . --exclude=.git
+          
+          # Base64로 인코딩 (줄바꿈 없이 -w 0)
+          CONFIG_DATA=$(base64 -w 0 configs.tar.gz)
+          echo "CONFIG_DATA=$CONFIG_DATA" >> $GITHUB_OUTPUT
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/caring-back:latest
-        cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache
-        cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache,mode=max
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region: ${{ secrets.AWS_REGION }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Deploy via AWS SSM
-      run: |
-        aws ssm send-command \
-          --document-name "AWS-RunShellScript" \
-          --targets "Key=instanceids,Values=${{ secrets.EC2_INSTANCE_ID }}" \
-          --parameters 'commands=[
-            "echo [Deploy] Starting deployment process...",
-            
-            "echo [Deploy] 1. Logging into Docker Hub...",
-            "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin",
-            
-            "echo [Deploy] 2. Pulling latest image...",
-            "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
-            
-            "echo [Deploy] 3. Stopping existing container...",
-            "docker stop caring-server || echo [Deploy] No running container found.",
-            
-            "echo [Deploy] 4. Removing existing container...",
-            "docker rm caring-server || echo [Deploy] No container to remove.",
-            
-            "echo [Deploy] 5. Starting new container...",
-            "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
-            
-            "echo [Deploy] 6. Cleaning up unused images...",
-            "docker image prune -f",
-            
-            "echo [Deploy] SUCCESS: Deployment finished!"
-          ]' \
-          --comment "Deploying caring-back via GitHub Actions"
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/caring-back:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache,mode=max
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy via AWS SSM
+        run: |
+          aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=instanceids,Values=${{ secrets.EC2_INSTANCE_ID }}" \
+            --parameters 'commands=[
+              "echo [Deploy] Starting deployment process...",
+          
+              "echo [Deploy] 1. Setting up credentials directory...",
+              "mkdir -p /home/ubuntu/caring-voice/credentials",
+          
+              "echo [Deploy] 2. Cleaning old configs...",
+              "rm -rf /home/ubuntu/caring-voice/credentials/*",
+          
+              "echo [Deploy] 3. Deploying New Configs...",
+              # Base64 디코딩 -> 압축 해제 -> credentials 폴더에 풀기
+              "echo ${{ steps.config.outputs.CONFIG_DATA }} | base64 -d > /tmp/configs.tar.gz",
+              "tar -xzf /tmp/configs.tar.gz -C /home/ubuntu/caring-voice/credentials",
+              "rm /tmp/configs.tar.gz",
+          
+              # 보안 권한 설정 (외부 접근 차단)
+              "chmod -R 600 /home/ubuntu/caring-voice/credentials/*",
+          
+              "echo [Deploy] 4. Docker Login & Pull...",
+              "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin",
+              "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
+          
+              "echo [Deploy] 5. Restarting Container...",
+              "docker stop caring-server || true",
+              "docker rm caring-server || true",
+          
+              "echo [Deploy] 6. Starting new container...",
+              # --env-file: docker.env 사용 (절대 경로 주의)
+              # -v: credentials 폴더 전체를 컨테이너 내부 동일 경로로 마운트
+              "docker run -d --name caring-server --restart always -p 8000:8000 \\
+                --env-file /home/ubuntu/caring-voice/credentials/docker.env \\
+                -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials \\
+                ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
+          
+              "echo [Deploy] 7. Cleanup...",
+              "docker image prune -f",
+          
+              "echo [Deploy] SUCCESS!"
+            ]' \
+            --comment "Deploying caring-back with Config Repo and docker.env"
