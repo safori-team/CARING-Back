@@ -14,18 +14,34 @@ DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "springproject")
 DB_NAME = os.getenv("DB_NAME", "caring_voice")
 
+
+# SSL 인증서 경로 (환경변수에서만 로드, 기본값 없음)
+DB_CA_LOCATION = os.getenv("DB_CA_LOCATION")
+DB_CERT_LOCATION = os.getenv("DB_CERT_LOCATION")
+DB_KEY_LOCATION = os.getenv("DB_KEY_LOCATION")
+
 # 패스워드에 특수문자가 있을 경우 URL 인코딩
 ENCODED_PASSWORD = quote_plus(DB_PASSWORD) if DB_PASSWORD else ""
 
 # 데이터베이스 URL 구성
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
+connect_args = {}
+if DB_CA_LOCATION and DB_CERT_LOCATION and DB_KEY_LOCATION:
+    # PyMySQL은 ssl_ca, ssl_cert, ssl_key를 직접 키로 사용
+    connect_args = {
+        "ssl_ca": DB_CA_LOCATION,
+        "ssl_cert": DB_CERT_LOCATION,
+        "ssl_key": DB_KEY_LOCATION,
+    }
+
 # SQLAlchemy 엔진 생성
 engine = create_engine(
     DATABASE_URL,
     echo=False,  # SQL 쿼리 로깅 (개발 시 True로 설정)
     pool_pre_ping=True,  # 연결 상태 확인
-    pool_recycle=3600,   # 연결 재사용 시간 (1시간)
+    pool_recycle=3600,   # 연결 재사용 시간 (1시간),
+    connect_args=connect_args,
 )
 
 # 세션 팩토리 생성
