@@ -2,7 +2,7 @@ name: CI/CD IAM Role Based Docker Deploy
 
 on:
   push:
-    branches: [ "main", "release" ]
+    branches: [ "main", "release", "docker" ]
   workflow_dispatch:
 
 permissions:
@@ -29,8 +29,6 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 브랜치에 따라 태그를 다르게 설정
-      # main -> dev 태그 / release -> latest 태그
       - name: Docker Meta
         id: meta
         uses: docker/metadata-action@v5
@@ -38,6 +36,7 @@ jobs:
           images: ${{ secrets.DOCKER_USERNAME }}/caring-back
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/release' }}
+            type=raw,value=docker,enable=${{ github.ref == 'refs/heads/docker' }}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push Docker image
@@ -50,12 +49,11 @@ jobs:
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache,mode=max
 
       # ---------------------------------------------------
-      # 2. Deploy Steps (release 브랜치일 때만 실행)
+      # Deploy Steps (release 혹은 docker 브랜치일 때 실행)
       # ---------------------------------------------------
 
-      # 설정 파일 가져오기 (배포할 때만 필요하므로 조건 추가)
       - name: Checkout Config Repository
-        if: github.ref == 'refs/heads/release'
+        if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         uses: actions/checkout@v4
         with:
           repository: safori-team/Caring-Back-Env
@@ -64,7 +62,7 @@ jobs:
 
       # 설정 파일 압축
       - name: Bundle Config Files
-        if: github.ref == 'refs/heads/release'
+        if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         id: config
         run: |
           echo "Bundling configuration files..."
@@ -74,15 +72,18 @@ jobs:
 
       # AWS 인증
       - name: Configure AWS credentials
-        if: github.ref == 'refs/heads/release'
+        if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # SSM 배포 실행
+      # SSM 배포 실행 (태그 동적 처리)
       - name: Deploy via AWS SSM
-        if: github.ref == 'refs/heads/release'
+        if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
+        # 3. 배포할 태그 결정 (release면 latest, 아니면 docker)
+        env:
+          TARGET_TAG: ${{ github.ref == 'refs/heads/release' && 'latest' || 'docker' }}
         run: |
           aws ssm send-command \
             --document-name "AWS-RunShellScript" \
@@ -90,7 +91,7 @@ jobs:
             --max-concurrency "100%" \
             --max-errors "0" \
             --parameters 'commands=[
-              "echo [Deploy] Starting Production Deployment...",
+              "echo [Deploy] Starting Deployment for tag: ${{ env.TARGET_TAG }}...",
               "echo [Deploy] Target Info: $(hostname)",
               "mkdir -p /home/ubuntu/caring-voice/credentials",
               "rm -rf /home/ubuntu/caring-voice/credentials/*",
@@ -98,12 +99,19 @@ jobs:
               "tar -xzf /tmp/configs.tar.gz -C /home/ubuntu/caring-voice/credentials",
               "rm /tmp/configs.tar.gz",
               "chmod -R 600 /home/ubuntu/caring-voice/credentials/*",
+          
               "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin",
-              "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
+          
+              "echo [Deploy] Pulling image tag: ${{ env.TARGET_TAG }}...",
+              "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
+          
               "docker stop caring-server || true",
               "docker rm caring-server || true",
-              "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/credentials/docker.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
+          
+              "echo [Deploy] Running container with tag: ${{ env.TARGET_TAG }}...",
+              "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/credentials/docker.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
+          
               "docker image prune -f",
               "echo [Deploy] SUCCESS on $(hostname)!"
             ]' \
-            --comment "Production Deploy from Release Branch"
+            --comment "Deploying ${{ env.TARGET_TAG }} from ${{ github.ref_name }} branch"
