@@ -929,7 +929,12 @@ async def test_emotion_analyze(file: UploadFile = File(...)):
         sad = to_bps(probs.get("sad", 0))
         neutral = to_bps(probs.get("neutral", 0))
         angry = to_bps(probs.get("angry", 0))
-        fear = to_bps(probs.get("fear", 0))
+        # preview API에서도 fear/anxiety 계열을 합산해서 fear_bps로 보여준다.
+        fear_prob = (
+            float(probs.get("fear", 0) or 0)
+            + float(probs.get("anxiety", 0) or 0)
+        )
+        fear = to_bps(fear_prob)
         surprise = to_bps(probs.get("surprise", 0))
         total = happy + sad + neutral + angry + fear + surprise
         if total == 0:
