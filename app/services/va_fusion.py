@@ -201,7 +201,7 @@ def apply_zero_prob_mask(
 
 def fuse_VA(audio_probs: Dict[str, float], text_score: float, text_magnitude: float) -> Dict[str, object]:
     """Fuse audio (emotion probabilities) and text (score,magnitude) into composite VA.
-
+    
     Returns dict with keys:
       - V_final, A_final, intensity, V_audio, A_audio, V_text, A_text, alpha, beta (float)
       - per_emotion_bps (dict[str,int], sum=10000), top_emotion (str), top_confidence_bps (int)
@@ -272,6 +272,22 @@ def fuse_VA(audio_probs: Dict[str, float], text_score: float, text_magnitude: fl
         a_sc = float(audio_probs.get(emo, 0.0))
         t_sc = float(text_emotion_weight.get(emo, 0.0))
         composite_score[emo] = alpha_prob * a_sc + beta_prob * t_sc
+
+    # Audio에서 분노 비율이 매우 낮은 경우(angry_bps <= 2000 → angry_prob <= 0.2),
+    # voice_composite에서 분노가 과도하게 top으로 나오는 것을 방지하기 위해
+    # audio angry 정보의 최종 기여도를 완만하게 줄인다.
+    try:
+        angry_p = float(audio_probs.get("angry", 0.0))
+        if angry_p <= 0.2:
+            neg = max(0.0, -float(v_text))
+            mag = max(0.0, min(1.0, float(a_text)))
+            base_factor = 0.7
+            extra_down = 0.15 * neg * mag   # 최대 약 0.15 추가 감쇠
+            factor = max(0.5, base_factor - extra_down)  # 최소 0.5배까지
+            composite_score["angry"] = composite_score.get("angry", 0.0) * factor
+    except Exception:
+        # 로직 실패 시에는 안전하게 무시
+        pass
 
     # 감정별 가중치 조정: neutral은 더 강하게 억제(긍정일수록 추가 억제)
     neutral_base_factor = 0.6
