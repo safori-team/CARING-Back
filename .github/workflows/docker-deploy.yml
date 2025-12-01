@@ -28,8 +28,10 @@ jobs:
         id: config
         run: |
           echo "Bundling configuration files..."
+          # exclude 옵션 순서 수정됨 (tar -C 앞)
           tar -czf configs.tar.gz --exclude=.git -C config-repo .
           
+          # Base64 인코딩
           CONFIG_DATA=$(base64 -w 0 configs.tar.gz)
           echo "CONFIG_DATA=$CONFIG_DATA" >> $GITHUB_OUTPUT
 
@@ -62,43 +64,27 @@ jobs:
           aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --targets "Key=instanceids,Values=${{ secrets.EC2_INSTANCE_ID }}" \
-            --parameters 'commands=[
-              "echo [Deploy] Starting deployment process...",
-          
-              "echo [Deploy] 1. Setting up credentials directory...",
-              "mkdir -p /home/ubuntu/caring-voice/credentials",
-          
-              "echo [Deploy] 2. Cleaning old configs...",
-              "rm -rf /home/ubuntu/caring-voice/credentials/*",
-          
-              "echo [Deploy] 3. Deploying New Configs...",
-              # Base64 디코딩 -> 압축 해제 -> credentials 폴더에 풀기
-              "echo ${{ steps.config.outputs.CONFIG_DATA }} | base64 -d > /tmp/configs.tar.gz",
-              "tar -xzf /tmp/configs.tar.gz -C /home/ubuntu/caring-voice/credentials",
-              "rm /tmp/configs.tar.gz",
-          
-              # 보안 권한 설정 (외부 접근 차단)
-              "chmod -R 600 /home/ubuntu/caring-voice/credentials/*",
-          
-              "echo [Deploy] 4. Docker Login & Pull...",
-              "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin",
-              "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
-          
-              "echo [Deploy] 5. Restarting Container...",
-              "docker stop caring-server || true",
-              "docker rm caring-server || true",
-          
-              "echo [Deploy] 6. Starting new container...",
-              # --env-file: docker.env 사용 (절대 경로 주의)
-              # -v: credentials 폴더 전체를 컨테이너 내부 동일 경로로 마운트
-              "docker run -d --name caring-server --restart always -p 8000:8000 \\
-                --env-file /home/ubuntu/caring-voice/credentials/docker.env \\
-                -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials \\
-                ${{ secrets.DOCKER_USERNAME }}/caring-back:latest",
-          
-              "echo [Deploy] 7. Cleanup...",
-              "docker image prune -f",
-          
-              "echo [Deploy] SUCCESS!"
+            --parameters 'commands=[ \
+              "echo [Deploy] Starting deployment process...", \
+              "echo [Deploy] 1. Setting up credentials directory...", \
+              "mkdir -p /home/ubuntu/caring-voice/credentials", \
+              "echo [Deploy] 2. Cleaning old configs...", \
+              "rm -rf /home/ubuntu/caring-voice/credentials/*", \
+              "echo [Deploy] 3. Deploying New Configs...", \
+              "echo ${{ steps.config.outputs.CONFIG_DATA }} | base64 -d > /tmp/configs.tar.gz", \
+              "tar -xzf /tmp/configs.tar.gz -C /home/ubuntu/caring-voice/credentials", \
+              "rm /tmp/configs.tar.gz", \
+              "chmod -R 600 /home/ubuntu/caring-voice/credentials/*", \
+              "echo [Deploy] 4. Docker Login & Pull...", \
+              "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin", \
+              "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:latest", \
+              "echo [Deploy] 5. Restarting Container...", \
+              "docker stop caring-server || true", \
+              "docker rm caring-server || true", \
+              "echo [Deploy] 6. Starting new container...", \
+              "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/credentials/docker.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials ${{ secrets.DOCKER_USERNAME }}/caring-back:latest", \
+              "echo [Deploy] 7. Cleanup...", \
+              "docker image prune -f", \
+              "echo [Deploy] SUCCESS!" \
             ]' \
             --comment "Deploying caring-back with Config Repo and docker.env"
