@@ -57,8 +57,8 @@ docker-compose.yml
 .github
 
 # Others
-alembic.ini
+# alembic.ini
 manage_db.py
 create_migration.py
-init_questions.py
+# init_questions.py
 credentials/

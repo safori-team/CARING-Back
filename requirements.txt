@@ -18,3 +18,4 @@ psutil>=5.9.0
 firebase-admin>=6.0.0
 openai>=1.40.0
 httpx>=0.25.0
+python-multipart
