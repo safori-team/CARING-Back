@@ -8,6 +8,18 @@ PROJECT_DIR="/home/ubuntu/caring-voice"
 cd $PROJECT_DIR
 
 echo "🛑 기존 uvicorn 프로세스 종료"
+
+# 기존 로그 백업 및 출력
+if [ -f server.log ] && [ -s server.log ]; then
+  BACKUP_LOG="server.log.$(date +%Y%m%d_%H%M%S)"
+  cp server.log "$BACKUP_LOG"
+  echo "📋 이전 로그 백업됨: $BACKUP_LOG"
+  echo "📜 이전 로그 마지막 50줄:"
+  echo "================================================"
+  tail -50 server.log
+  echo "================================================"
+fi
+
 pkill -f "uvicorn app.main:app" || true
 sleep 1
 
@@ -43,9 +55,14 @@ if ps -p $SERVER_PID > /dev/null; then
   fi
 else
   echo "❌ 서버 시작 실패"
+  echo "📋 현재 로그:"
   tail -n 100 server.log || true
   exit 1
 fi
+
+echo ""
+echo "💡 TIP: 이전 로그 보기 - ls -lt server.log.* | head -5"
+echo "💡 TIP: 실시간 로그 - tail -f server.log"
 
 
 
