@@ -12,19 +12,13 @@ from botocore.config import Config
 from ..database import get_db
 from ..models import Voice, VoiceContent, VoiceComposite, User
 from ..exceptions import InternalServerException, DatabaseException
+from ..s3_service import get_presigned_url
 
 logger = logging.getLogger(__name__)
 
 def send_analysis_to_chatbot(voice_id: int, db: Session = Depends(get_db)):
     """
     분석이 완료된 음성 데이터를 조회하여 챗봇 SQS로 이벤트를 전송합니다.
-
-    Args:
-        voice_id (int): 조회할 음성 데이터 ID.
-        db (Session): FastAPI Depends를 통해 주입된 DB 세션.
-
-    Returns:
-        dict: 전송 성공 메시지.
     """
 
     sqs_url = os.getenv("CHATBOT_SQS_URL")
@@ -47,7 +41,6 @@ def send_analysis_to_chatbot(voice_id: int, db: Session = Depends(get_db)):
         )
 
     except SQLAlchemyError as e:
-        # DB 연결 끊김, 쿼리 구문 오류 등 SQLAlchemy 관련 심각한 오류 발생
         logger.error(f"[ChatbotIntegration] Database query failed for voice_id={voice_id}: {e}", exc_info=True)
         raise DatabaseException(
             message="Failed to retrieve data due to an internal database error."
@@ -64,17 +57,19 @@ def send_analysis_to_chatbot(voice_id: int, db: Session = Depends(get_db)):
         # 추가 맥락 정보 추출
         question_text = voice.questions[0].content if voice.questions else None
 
-        # 메시지 페이로드 구성
-        message_body = _create_message_body(voice, content, composite, user, question_text)
+        bucket = os.getenv("S3_BUCKET_NAME")
+        s3_url = None
+        if bucket and voice.voice_key:
+            s3_url = get_presigned_url(bucket, voice.voice_key, expires_in=3600 * 24 * 7)
 
-        # 5. SQS 전송
+        message_body = _create_message_body(voice, content, composite, user, question_text, s3_url)
+
         response = _send_sqs_message(sqs_url, message_body)
 
         logger.info(f"[ChatbotIntegration] Sent to chatbot SQS. MsgID={response.get('MessageId')}, VoiceID={voice_id}")
         return {"message": f"Analysis event for voice_id {voice_id} sent successfully."}
 
     except Exception as e:
-        # DB 오류나 SQS URL 누락 외의 기타 런타임 오류 (예: SQS 전송 실패, 데이터 구조 오류 등)
         logger.error(f"[ChatbotIntegration] Failed to process or send SQS: {e}", exc_info=True)
         raise InternalServerException(
             message=f"An unexpected error occurred during SQS preparation or transmission: {type(e).__name__}"
@@ -82,7 +77,7 @@ def send_analysis_to_chatbot(voice_id: int, db: Session = Depends(get_db)):
 
 # --- 유틸리티 함수 분리 ---
 
-def _create_message_body(voice, content, composite, user, question_text: Optional[str]):
+def _create_message_body(voice, content, composite, user, question_text: Optional[str], s3_url: Optional[str] = None):
     """메시지 본문을 구성합니다."""
 
     # 10000bps 단위를 1.0 기준으로 변환
@@ -109,16 +104,14 @@ def _create_message_body(voice, content, composite, user, question_text: Optiona
         "user_id": user.username,
         "voice_id": voice.voice_id,
 
-            # [대화 생성을 위한 핵심 맥락]
-            "user_name": user.name,           # 예: "홍길동"
-            "question": question_text,        # 예: "오늘 감사한 일은 무엇인가요?"
-            "content": content.content,       # 사용자 답변 내용
-            "recorded_at": voice.created_at.isoformat() if voice.created_at else None, # 실제 녹음 시간
-
-            # [감정 데이터]
-            "emotion": emotion_payload,
-            "timestamp": datetime.now().isoformat() # 전송 시간
-        }
+        "user_name": user.name,           # 예: "홍길동"
+        "question": question_text,        # 예: "오늘 감사한 일은 무엇인가요?"
+        "content": content.content,       # 사용자 답변 내용
+        "recorded_at": voice.created_at.isoformat() if voice.created_at else None,
+        "s3_url": s3_url,
+        "emotion": emotion_payload,
+        "timestamp": datetime.now().isoformat() # 전송 시간
+    }
 
 def _send_sqs_message(sqs_url: str, message_body: dict):
     """실제로 SQS 메시지를 전송합니다."""
