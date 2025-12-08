@@ -90,7 +90,6 @@ jobs:
               "echo [Deploy] Starting Deployment for tag: ${{ env.TARGET_TAG }}...",
           
               "mkdir -p /home/ubuntu/caring-voice/credentials",
-              # 모델 캐싱용 폴더 미리 생성 및 권한 부여
               "mkdir -p /home/ubuntu/.cache/huggingface",
               "chmod 777 /home/ubuntu/.cache/huggingface",
 
@@ -109,11 +108,7 @@ jobs:
               "docker rm caring-server || true",
           
               "echo [Deploy] Running container...",
-              "docker run -d --name caring-server --restart always -p 8000:8000 \
-               --env-file /home/ubuntu/caring-voice/credentials/docker.env \
-               -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials \
-               -v /home/ubuntu/.cache/huggingface:/data/model_cache \
-               ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
+              "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/credentials/docker.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials -v /home/ubuntu/.cache/huggingface:/data/model_cache ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
           
               "docker image prune -f",
               "echo [Deploy] SUCCESS!"
