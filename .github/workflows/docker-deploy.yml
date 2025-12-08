@@ -45,13 +45,13 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          # 레이어 캐시를 적극 활용하도록 설정 유지
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache,mode=max
 
       # ---------------------------------------------------
       # Deploy Steps (release 혹은 docker 브랜치일 때 실행)
       # ---------------------------------------------------
-
       - name: Checkout Config Repository
         if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         uses: actions/checkout@v4
@@ -60,7 +60,6 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           path: config-repo
 
-      # 설정 파일 압축
       - name: Bundle Config Files
         if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         id: config
@@ -70,7 +69,6 @@ jobs:
           CONFIG_DATA=$(base64 -w 0 configs.tar.gz)
           echo "CONFIG_DATA=$CONFIG_DATA" >> $GITHUB_OUTPUT
 
-      # AWS 인증
       - name: Configure AWS credentials
         if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         uses: aws-actions/configure-aws-credentials@v4
@@ -78,10 +76,8 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # SSM 배포 실행 (태그 동적 처리)
       - name: Deploy via AWS SSM
         if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
-        # 3. 배포할 태그 결정 (release면 latest, 아니면 docker)
         env:
           TARGET_TAG: ${{ github.ref == 'refs/heads/release' && 'latest' || 'docker' }}
         run: |
@@ -92,8 +88,12 @@ jobs:
             --max-errors "0" \
             --parameters 'commands=[
               "echo [Deploy] Starting Deployment for tag: ${{ env.TARGET_TAG }}...",
-              "echo [Deploy] Target Info: $(hostname)",
+          
               "mkdir -p /home/ubuntu/caring-voice/credentials",
+              # 모델 캐싱용 폴더 미리 생성 및 권한 부여
+              "mkdir -p /home/ubuntu/.cache/huggingface",
+              "chmod 777 /home/ubuntu/.cache/huggingface",
+
               "rm -rf /home/ubuntu/caring-voice/credentials/*",
               "echo ${{ steps.config.outputs.CONFIG_DATA }} | base64 -d > /tmp/configs.tar.gz",
               "tar -xzf /tmp/configs.tar.gz -C /home/ubuntu/caring-voice/credentials",
@@ -102,16 +102,20 @@ jobs:
           
               "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin",
           
-              "echo [Deploy] Pulling image tag: ${{ env.TARGET_TAG }}...",
+              "echo [Deploy] Pulling image...",
               "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
           
               "docker stop caring-server || true",
               "docker rm caring-server || true",
           
-              "echo [Deploy] Running container with tag: ${{ env.TARGET_TAG }}...",
-              "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/credentials/docker.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
+              "echo [Deploy] Running container...",
+              "docker run -d --name caring-server --restart always -p 8000:8000 \
+               --env-file /home/ubuntu/caring-voice/credentials/docker.env \
+               -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials \
+               -v /home/ubuntu/.cache/huggingface:/data/model_cache \
+               ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
           
               "docker image prune -f",
-              "echo [Deploy] SUCCESS on $(hostname)!"
+              "echo [Deploy] SUCCESS!"
             ]' \
-            --comment "Deploying ${{ env.TARGET_TAG }} from ${{ github.ref_name }} branch"
+            --comment "Deploying ${{ env.TARGET_TAG }} from ${{ github.ref_name }}"

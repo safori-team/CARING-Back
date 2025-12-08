@@ -1,5 +1,11 @@
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1
+ENV TZ=Asia/Seoul
+
+# 2. Hugging Face 모델 캐시 경로 지정
+ENV HF_HOME=/data/model_cache
+
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsndfile1 \
@@ -7,13 +13,19 @@ RUN apt-get update && apt-get install -y \
     g++ \
     git \
     curl \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /caring-voice
 
-COPY requirements.txt .
+RUN mkdir -p /data/model_cache && chmod 777 /data/model_cache
+
+COPY requirements-heavy.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements-heavy.txt
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
