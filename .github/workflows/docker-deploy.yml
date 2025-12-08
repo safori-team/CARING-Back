@@ -81,13 +81,30 @@ jobs:
         env:
           TARGET_TAG: ${{ github.ref == 'refs/heads/release' && 'latest' || 'docker' }}
         run: |
-          aws ssm send-command \
+          echo "🔎 Finding instances with tag DeployGroup=Caring-Server..."
+          INSTANCE_IDS=$(aws ec2 describe-instances \
+            --filters "Name=tag:DeployGroup,Values=Caring-Server" "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].InstanceId" \
+            --output text)
+          
+          if [ -z "$INSTANCE_IDS" ] || [ "$INSTANCE_IDS" == "None" ]; then
+            echo "❌ Error: 실행 중인 서버를 찾을 수 없습니다. EC2 태그(DeployGroup=Caring-Server)를 확인하세요."
+            exit 1
+          fi
+          
+          INSTANCE_IDS=$(echo $INSTANCE_IDS | tr '\n' ' ')
+          echo "🚀 Target Instances: $INSTANCE_IDS"
+
+          COMMAND_ID=$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --targets "Key=tag:DeployGroup,Values=Caring-Server" \
             --max-concurrency "100%" \
             --max-errors "0" \
+            --output text \
+            --query "Command.CommandId" \
             --parameters 'commands=[
               "echo [Deploy] Starting Deployment for tag: ${{ env.TARGET_TAG }}...",
+              "echo [Deploy] Target Info: $(hostname)",
           
               "mkdir -p /home/ubuntu/caring-voice/credentials",
               "mkdir -p /home/ubuntu/.cache/huggingface",
@@ -111,6 +128,42 @@ jobs:
               "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/credentials/docker.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials -v /home/ubuntu/.cache/huggingface:/data/model_cache ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
           
               "docker image prune -f",
-              "echo [Deploy] SUCCESS!"
+              "echo [Deploy] SUCCESS on $(hostname)!"
             ]' \
-            --comment "Deploying ${{ env.TARGET_TAG }} from ${{ github.ref_name }}"
+            --comment "Deploying ${{ env.TARGET_TAG }}")
+
+          echo "📡 Command sent! ID: $COMMAND_ID"
+          echo "⏳ Waiting for command execution on all targets..."
+          
+          EXIT_CODE=0
+          for ID in $INSTANCE_IDS; do
+            echo "Checking instance: $ID"
+          
+            aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$ID"
+          
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$ID" \
+              --query "Status" \
+              --output text)
+          
+            if [ "$STATUS" != "Success" ]; then
+              echo "❌ Failed on instance $ID (Status: $STATUS)"
+              echo "--- Error Logs ($ID) ---"
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$ID" \
+                --query "StandardErrorContent" \
+                --output text
+              EXIT_CODE=1
+            else
+              echo "✅ Success on instance $ID"
+            fi
+          done
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ Deployment finished with errors."
+            exit 1
+          else
+            echo "🎉 All deployments succeeded!"
+          fi
