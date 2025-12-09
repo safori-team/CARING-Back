@@ -50,9 +50,9 @@ jobs:
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/caring-back:buildcache,mode=max
 
       # ---------------------------------------------------
-      # Deploy Steps (release 혹은 docker 브랜치일 때 실행)
+      # 2. Deploy Steps (release 혹은 docker 브랜치일 때 실행)
       # ---------------------------------------------------
-      - name: Checkout Config Repository (원본 파일 가져오기)
+      - name: Checkout Config Repository
         if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         uses: actions/checkout@v4
         with:
@@ -85,6 +85,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # ---------------------------------------------------
+      # 3. Deploy via AWS SSM (Targeting EC2)
+      # ---------------------------------------------------
       - name: Deploy via AWS SSM
         if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         env:
@@ -123,9 +126,9 @@ jobs:
               "echo ${{ steps.config.outputs.CONFIG_DATA }} | base64 -d > /tmp/configs.enc",
           
               "echo [Deploy] Fetching decryption key from AWS Parameter Store...",
-              "DECRYPT_KEY=$(aws ssm get-parameter --name /caring-voice/deploy-key --with-decryption --query Parameter.Value --output text --region ap-northeast-2)",
+              "export DECRYPT_KEY=$(aws ssm get-parameter --name /caring-voice/deploy-key --with-decryption --query Parameter.Value --output text --region ap-northeast-2)",
           
-              "openssl enc -d -aes-256-cbc -in /tmp/configs.enc -out /tmp/configs.tar.gz -k $DECRYPT_KEY",
+              "openssl enc -d -aes-256-cbc -in /tmp/configs.enc -out /tmp/configs.tar.gz -pass env:DECRYPT_KEY",
           
               "unset DECRYPT_KEY",
 
@@ -137,16 +140,18 @@ jobs:
               "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin",
           
               "echo [Deploy] Pulling image...",
-              "docker pull ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
+              "docker pull -q ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
           
               "docker stop caring-server || true",
               "docker rm caring-server || true",
           
               "echo [Deploy] Running container...",
-              "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/credentials/docker.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials -v /home/ubuntu/.cache/huggingface:/data/model_cache ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }}",
+              "docker run -d --name caring-server --restart always -p 8000:8000 --env-file /home/ubuntu/caring-voice/credentials/docker.env -v /home/ubuntu/caring-voice/credentials:/caring-voice/credentials -v /home/ubuntu/.cache/huggingface:/data/model_cache ${{ secrets.DOCKER_USERNAME }}/caring-back:${{ env.TARGET_TAG }} > /dev/null 2>&1",
           
               "docker image prune -f",
-              "echo [Deploy] SUCCESS on $(hostname)!"
+              "echo [Deploy] SUCCESS on $(hostname)!",
+          
+              "exit 0"
             ]' \
             --comment "Deploying ${{ env.TARGET_TAG }}")
 
