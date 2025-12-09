@@ -151,31 +151,45 @@ jobs:
             --comment "Deploying ${{ env.TARGET_TAG }}")
 
           echo "📡 Command sent! ID: $COMMAND_ID"
-          echo "⏳ Waiting for command execution on all targets..."
+          echo "⏳ Waiting for command execution (Max 60 mins)..."
           
           EXIT_CODE=0
           for ID in $INSTANCE_IDS; do
             echo "Checking instance: $ID"
           
-            aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$ID"
+            ATTEMPTS=0
+            MAX_ATTEMPTS=360
           
-            STATUS=$(aws ssm get-command-invocation \
-              --command-id "$COMMAND_ID" \
-              --instance-id "$ID" \
-              --query "Status" \
-              --output text)
-          
-            if [ "$STATUS" != "Success" ]; then
-              echo "❌ Failed on instance $ID (Status: $STATUS)"
-              echo "--- Error Logs ($ID) ---"
-              aws ssm get-command-invocation \
+            while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+              STATUS=$(aws ssm get-command-invocation \
                 --command-id "$COMMAND_ID" \
                 --instance-id "$ID" \
-                --query "StandardErrorContent" \
-                --output text
+                --query "Status" \
+                --output text)
+          
+              if [ "$STATUS" == "Success" ]; then
+                echo "✅ Success on instance $ID"
+                break
+              elif [ "$STATUS" == "Failed" ] || [ "$STATUS" == "Cancelled" ] || [ "$STATUS" == "TimedOut" ]; then
+                echo "❌ Failed on instance $ID (Status: $STATUS)"
+                echo "--- Error Logs ($ID) ---"
+                aws ssm get-command-invocation \
+                  --command-id "$COMMAND_ID" \
+                  --instance-id "$ID" \
+                  --query "StandardErrorContent" \
+                  --output text
+                EXIT_CODE=1
+                break
+              else
+                echo "[$ATTEMPTS/$MAX_ATTEMPTS] Status: $STATUS - Still running..."
+                sleep 10
+                ATTEMPTS=$((ATTEMPTS+1))
+              fi
+            done
+
+            if [ $ATTEMPTS -eq $MAX_ATTEMPTS ]; then
+              echo "⏰ Timeout: Deployment took too long (> 60 mins) on instance $ID"
               EXIT_CODE=1
-            else
-              echo "✅ Success on instance $ID"
             fi
           done
 
