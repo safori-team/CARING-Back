@@ -37,6 +37,7 @@ from .exceptions import (
     AppException, ValidationException, RuntimeException,
     DatabaseException, OutOfMemoryException, InternalServerException
 )
+from .services.analyze_chat_service import AnalyzeChatService
 from fastapi.exceptions import RequestValidationError
 from pymysql import OperationalError as PyMysqlOperationalError
 from sqlalchemy.exc import SQLAlchemyError
@@ -46,7 +47,12 @@ from starlette.requests import Request
 import time
 import logging
 
-app = FastAPI(title="Caring API")
+app = FastAPI(
+    title="Caring API",
+    openapi_prefix="/prod",
+    openapi_url="/openapi.json",
+    docs_url="/docs"
+)
 
 # TCP 연결 로깅 미들웨어
 class TCPConnectionLoggingMiddleware(BaseHTTPMiddleware):
