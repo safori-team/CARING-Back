@@ -37,6 +37,7 @@ from .exceptions import (
     AppException, ValidationException, RuntimeException,
     DatabaseException, OutOfMemoryException, InternalServerException
 )
+from .services.analyze_chat_service import AnalyzeChatService
 from fastapi.exceptions import RequestValidationError
 from pymysql import OperationalError as PyMysqlOperationalError
 from sqlalchemy.exc import SQLAlchemyError
