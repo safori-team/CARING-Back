@@ -47,7 +47,12 @@ from starlette.requests import Request
 import time
 import logging
 
-app = FastAPI(title="Caring API")
+app = FastAPI(
+    title="Caring API",
+    openapi_prefix="/prod",
+    openapi_url="/openapi.json",
+    docs_url="/docs"
+)
 
 # TCP 연결 로깅 미들웨어
 class TCPConnectionLoggingMiddleware(BaseHTTPMiddleware):
