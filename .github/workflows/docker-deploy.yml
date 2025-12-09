@@ -52,7 +52,7 @@ jobs:
       # ---------------------------------------------------
       # Deploy Steps (release 혹은 docker 브랜치일 때 실행)
       # ---------------------------------------------------
-      - name: Checkout Config Repository
+      - name: Checkout Config Repository (원본 파일 가져오기)
         if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         uses: actions/checkout@v4
         with:
@@ -60,13 +60,22 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           path: config-repo
 
-      - name: Bundle Config Files
+      - name: Bundle & Encrypt Config Files
         if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/docker'
         id: config
+        env:
+          ENCRYPT_KEY: ${{ secrets.DECRYPT_KEY }}
         run: |
-          echo "Bundling configuration files..."
+          echo "📦 Compressing raw config files..."
           tar -czf configs.tar.gz --exclude=.git -C config-repo .
-          CONFIG_DATA=$(base64 -w 0 configs.tar.gz)
+          
+          echo "🔒 Encrypting config package..."
+          # OpenSSL로 암호화 (configs.tar.gz -> configs.enc)
+          # 여기서 쓰는 키($ENCRYPT_KEY)와 AWS Parameter Store에 저장된 키가 같아야 합니다.
+          openssl enc -aes-256-cbc -salt -in configs.tar.gz -out configs.enc -k "$ENCRYPT_KEY"
+          
+          echo "📤 Encoding for transfer..."
+          CONFIG_DATA=$(base64 -w 0 configs.enc)
           echo "CONFIG_DATA=$CONFIG_DATA" >> $GITHUB_OUTPUT
 
       - name: Configure AWS credentials
@@ -109,11 +118,20 @@ jobs:
               "mkdir -p /home/ubuntu/caring-voice/credentials",
               "mkdir -p /home/ubuntu/.cache/huggingface",
               "chmod 777 /home/ubuntu/.cache/huggingface",
-
               "rm -rf /home/ubuntu/caring-voice/credentials/*",
-              "echo ${{ steps.config.outputs.CONFIG_DATA }} | base64 -d > /tmp/configs.tar.gz",
+
+              "echo ${{ steps.config.outputs.CONFIG_DATA }} | base64 -d > /tmp/configs.enc",
+          
+              "echo [Deploy] Fetching decryption key from AWS Parameter Store...",
+              "DECRYPT_KEY=$(aws ssm get-parameter --name /caring-voice/deploy-key --with-decryption --query Parameter.Value --output text --region ap-northeast-2)",
+          
+              "openssl enc -d -aes-256-cbc -in /tmp/configs.enc -out /tmp/configs.tar.gz -k $DECRYPT_KEY",
+          
+              "unset DECRYPT_KEY",
+
               "tar -xzf /tmp/configs.tar.gz -C /home/ubuntu/caring-voice/credentials",
-              "rm /tmp/configs.tar.gz",
+          
+              "rm /tmp/configs.enc /tmp/configs.tar.gz",
               "chmod -R 600 /home/ubuntu/caring-voice/credentials/*",
           
               "echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin",
