@@ -303,7 +303,7 @@ class VoiceService:
         db = SessionLocal()
         try:
             logger.log_step("(비동기 작업) STT 작업 시작", category="async")
-            deadline = time.monotonic() + 20.0
+            deadline = time.monotonic() + 30.0
             
             # 1. STT 처리 (스레드 풀에서 실행하여 실제 병렬 처리 가능)
             file_obj_for_stt = BytesIO(file_content)
@@ -322,7 +322,7 @@ class VoiceService:
             try:
                 stt_result = await asyncio.wait_for(stt_coro, timeout=remaining)
             except asyncio.TimeoutError:
-                print(f"STT 타임아웃: voice_id={voice_id} after 20s")
+                print(f"STT 타임아웃: voice_id={voice_id} after 30s")
                 logger.log_step("stt 타임아웃", category="async")
                 mark_text_done(db, voice_id)
                 try_aggregate(db, voice_id)
