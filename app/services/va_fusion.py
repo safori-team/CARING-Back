@@ -1,4 +1,4 @@
-from math import exp, sqrt
+from math import exp, sqrt, log
 from typing import Dict, Tuple, Optional
 
 # Emotion anchors for Valence (V) and Arousal (A)
@@ -199,6 +199,33 @@ def apply_zero_prob_mask(
     return out
 
 
+def compute_entropy(probs: Dict[str, float]) -> float:
+    """정규화된 엔트로피 계산 (0~1).
+    
+    감정 분포가 균일할수록(모든 감정이 비슷한 확률) 1에 가깝고,
+    특정 감정에 집중될수록 0에 가깝습니다.
+    
+    Args:
+        probs: 감정별 확률 딕셔너리 (합이 1일 필요 없음)
+        
+    Returns:
+        정규화된 엔트로피 값 (0~1)
+    """
+    eps = 1e-10
+    # 정규화
+    total = sum(max(0.0, p) for p in probs.values())
+    if total <= 0:
+        return 1.0  # 모든 값이 0이면 최대 엔트로피(균일)로 간주
+    
+    normalized = {k: max(0.0, v) / total for k, v in probs.items()}
+    
+    # 엔트로피 계산
+    h = -sum(p * log(p + eps) for p in normalized.values() if p > 0)
+    max_h = log(len(probs)) if len(probs) > 0 else 1.0  # 균등 분포일 때 최대 엔트로피
+    
+    return h / max_h if max_h > 0 else 0.0
+
+
 def fuse_VA(audio_probs: Dict[str, float], text_score: float, text_magnitude: float) -> Dict[str, object]:
     """Fuse audio (emotion probabilities) and text (score,magnitude) into composite VA.
     
@@ -297,7 +324,26 @@ def fuse_VA(audio_probs: Dict[str, float], text_score: float, text_magnitude: fl
         neutral_factor = max(0.3, neutral_base_factor - extra_down)
     else:
         neutral_factor = neutral_base_factor
-    composite_score["neutral"] = composite_score.get("neutral", 0.0) * neutral_factor * 0.7
+    
+    # 충돌 감지: v_audio와 v_text 부호가 다르면 감정 상쇄 발생
+    # 이 경우 neutral이 과대 평가되므로 추가 억제
+    is_conflict = (v_audio * v_text) < 0
+    if is_conflict:
+        conflict_factor = 0.1  # 충돌 시 neutral 0.1배로 강하게 억제
+    else:
+        conflict_factor = 1.0
+    
+    # 엔트로피 기반 억제: 감정 분포가 균일할수록(엔트로피 높음) neutral 추가 억제
+    entropy = compute_entropy(composite_score)
+    if entropy > 0.8:
+        entropy_factor = 0.3  # 높은 엔트로피 시 0.3배
+    elif entropy > 0.6:
+        entropy_factor = 0.6  # 중간 엔트로피 시 0.6배
+    else:
+        entropy_factor = 1.0
+    
+    # 최종 neutral 억제: 기존 + 충돌 + 엔트로피
+    composite_score["neutral"] = composite_score.get("neutral", 0.0) * neutral_factor * 0.7 * conflict_factor * entropy_factor
     composite_score["surprise"] = composite_score.get("surprise", 0.0) * 0.9
 
     per_emotion_bps = _normalize_to_bps(composite_score)
