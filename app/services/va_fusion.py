@@ -258,8 +258,8 @@ def fuse_VA(audio_probs: Dict[str, float], text_score: float, text_magnitude: fl
         "happy": pos * mag,
         "sad": neg * mag,
         "neutral": max(0.0, neutral_base),
-        "angry": neg * mag * 0.8,
-        "fear": neg * mag * 0.7,
+        "angry": neg * mag,         # 부정 감정 동일 가중치
+        "fear": neg * mag,          # 부정 감정 동일 가중치
         "surprise": pos * mag * 0.8,
     }
     # 긍정 텍스트( v_text > 0 )일 때 happy 동적 가중(증가) + surprise 경감, 이후 재정규화
