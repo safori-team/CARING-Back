@@ -4,7 +4,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Form, APIRouter, D
 from fastapi.responses import JSONResponse
 from typing import List
 from datetime import datetime
-from .s3_service import upload_fileobj, list_bucket_objects, list_bucket_objects_with_urls
+from .s3_service import list_bucket_objects_with_urls
 from .constants import VOICE_BASE_PREFIX, DEFAULT_UPLOAD_FOLDER
 from .emotion_service import analyze_voice_emotion
 from .stt_service import transcribe_voice
@@ -1093,6 +1093,7 @@ async def analyze_chat(
     session_id: str = Form(...),
     user_id: str = Form(...),
     question: str = Form(...),
+    s3_url: Optional[str] = Form(None),
     file: UploadFile = File(...),
     analyze_chat_service: "AnalyzeChatService" = Depends(get_analyze_chat_service_dep)
 ):
@@ -1104,7 +1105,8 @@ async def analyze_chat(
             file=file,
             session_id=session_id,
             user_id=user_id,
-            question=question
+            question=question,
+            s3_url=s3_url
         )
     except AppException:
         raise

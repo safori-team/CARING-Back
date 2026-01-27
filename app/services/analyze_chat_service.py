@@ -13,7 +13,7 @@ from ..services.va_fusion import fuse_VA
 from ..nlp_service import analyze_text_sentiment
 from ..emotion_service import analyze_voice_emotion
 from ..stt_service import transcribe_voice
-from ..s3_service import upload_fileobj, get_presigned_url
+from ..s3_service import get_presigned_url
 from ..auth_service import get_auth_service
 from ..voice_service import get_voice_service
 from ..exceptions import (
@@ -40,7 +40,8 @@ class AnalyzeChatService:
         file: UploadFile,
         session_id: str,
         user_id: str,
-        question: str
+        question: str,
+        s3_url: str | None = None
     ) -> Dict[str, Any]:
         """
         음성 파일을 분석하고 외부 chatbot API로 전송
@@ -94,21 +95,6 @@ class AnalyzeChatService:
             self.voice_service._convert_to_wav, file_content, filename
         )
 
-        s3_key = await asyncio.to_thread(
-            self._upload_to_s3,
-            wav_content,
-            wav_filename,
-            session_id,
-            user_id,
-            content_type
-        )
-
-        # S3 Key로 Presigned URL 생성
-        bucket = os.getenv("S3_BUCKET_NAME")
-        s3_url = None
-        if bucket and s3_key:
-            s3_url = get_presigned_url(bucket, s3_key, expires_in=3600 * 24 * 7)
-
         # 2. STT (음성 → 텍스트)
         content = await asyncio.to_thread(
             self._transcribe_audio,
@@ -129,7 +115,7 @@ class AnalyzeChatService:
         # 4. 사용자 정보 조회
         user_name = self._get_user_name(user_id)
 
-        # 5. 외부 API 호출 (s3_url 전달)
+        # 5. 외부 API 호출 (요청 바디에 s3_url 포함)
         return await self._send_to_chatbot(
             content=content,
             emotion=emotion_data,
@@ -139,28 +125,6 @@ class AnalyzeChatService:
             session_id=session_id,
             s3_url=s3_url
         )
-    
-    def _upload_to_s3(
-        self,
-        file_content: bytes,
-        filename: str,
-        session_id: str,
-        user_id: str,
-        content_type: str
-    ) -> str:
-        """S3에 파일 업로드"""
-        bucket = os.getenv("S3_BUCKET_NAME")
-        if not bucket:
-            raise InternalServerException("S3_BUCKET_NAME not configured")
-        
-        # S3 키 생성: {session_id}/{user_id}/{filename}
-        s3_key = f"{session_id}/{user_id}/{filename}" if session_id and user_id else f"chat/{filename}"
-        
-        # S3 업로드
-        file_obj = BytesIO(file_content)
-        upload_fileobj(bucket=bucket, key=s3_key, fileobj=file_obj, content_type=content_type)
-        
-        return s3_key
     
     def _transcribe_audio(
         self,

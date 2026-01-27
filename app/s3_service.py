@@ -23,25 +23,6 @@ def get_s3_client():
     return boto3.client("s3", **kwargs)
 
 
-def upload_fileobj(bucket: str, key: str, fileobj, content_type: str = None) -> str:
-    s3 = get_s3_client()
-    extra_args = {}
-    if content_type:
-        extra_args["ContentType"] = content_type
-    s3.upload_fileobj(fileobj, bucket, key, ExtraArgs=extra_args if extra_args else None)
-    return key
-
-
-def list_bucket_objects(bucket: str, prefix: str = "") -> List[str]:
-    s3 = get_s3_client()
-    paginator = s3.get_paginator("list_objects_v2")
-    keys: List[str] = []
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get("Contents", []) or []:
-            keys.append(obj["Key"]) 
-    return keys
-
-
 def get_presigned_url(bucket: str, key: str, expires_in: int = 3600) -> str:
     """단일 S3 객체의 presigned URL 생성"""
     s3 = get_s3_client()

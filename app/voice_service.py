@@ -10,7 +10,7 @@ import subprocess
 import librosa
 import soundfile as sf
 import numpy as np
-from .s3_service import upload_fileobj, get_presigned_url
+from .s3_service import get_presigned_url
 from .stt_service import transcribe_voice
 from .nlp_service import analyze_text_sentiment
 from .emotion_service import analyze_voice_emotion
@@ -227,22 +227,11 @@ class VoiceService:
             )
             logger.log_step("파일변환 완료")
             
-            # 4. S3 업로드 (WAV 파일)
-            bucket = os.getenv("S3_BUCKET_NAME")
-            if not bucket:
-                return {
-                    "success": False,
-                    "message": "S3_BUCKET_NAME not configured"
-                }
-            
+            # 4. S3 업로드는 사용하지 않지만, 기존 스키마를 위해 voice_key 형태만 유지
             base_prefix = VOICE_BASE_PREFIX.rstrip("/")
             effective_prefix = f"{base_prefix}/{DEFAULT_UPLOAD_FOLDER}".rstrip("/")
             key = f"{effective_prefix}/{wav_filename}"
-            
-            file_obj_for_s3 = BytesIO(wav_content)
-            upload_fileobj(bucket=bucket, key=key, fileobj=file_obj_for_s3)
-            logger.log_step("s3업로드 완료")
-            
+
             # 5. 데이터베이스 저장 (기본 정보만)
             # 파일 크기로 대략적인 duration 추정
             with sf.SoundFile(BytesIO(wav_content)) as wav_file:
@@ -267,7 +256,7 @@ class VoiceService:
             clear_logger(0)
             logger = get_performance_logger(voice.voice_id, preserve_time=original_start)
             # 기존 단계들 복사
-            for step in ["시작", "파일변환 완료", "s3업로드 완료", "데이터베이스 입력 완료"]:
+            for step in ["시작", "파일변환 완료", "데이터베이스 입력 완료"]:
                 if step in logger.steps:
                     continue
                 logger.steps[step] = time.time() - original_start
@@ -787,22 +776,11 @@ class VoiceService:
             )
             logger.log_step("파일변환 완료")
             
-            # 5. S3 업로드 (WAV 파일)
-            bucket = os.getenv("S3_BUCKET_NAME")
-            if not bucket:
-                return {
-                    "success": False,
-                    "message": "S3_BUCKET_NAME not configured"
-                }
-            
+            # 5. S3 업로드는 사용하지 않지만, 기존 스키마를 위해 voice_key 형태만 유지
             base_prefix = VOICE_BASE_PREFIX.rstrip("/")
             effective_prefix = f"{base_prefix}/{DEFAULT_UPLOAD_FOLDER}".rstrip("/")
             key = f"{effective_prefix}/{wav_filename}"
-            
-            file_obj_for_s3 = BytesIO(wav_content)
-            upload_fileobj(bucket=bucket, key=key, fileobj=file_obj_for_s3)
-            logger.log_step("s3업로드 완료")
-            
+
             # 6. 데이터베이스 저장 (기본 정보만)
             file_size_mb = len(wav_content) / (1024 * 1024)
             estimated_duration_ms = int(file_size_mb * 1000)
