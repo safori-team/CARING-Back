@@ -42,39 +42,10 @@ class UserInfoResponse(BaseModel):
     connected_care_name: Optional[str] = None  # 연결된 보호자 이름 (없으면 null)
 
 
-class CareInfoResponse(BaseModel):
-    """보호자 내정보 조회 응답"""
-    name: str
-    username: str
-    connected_user_name: Optional[str] = None  # 연결된 피보호자 이름 (없으면 null)
-
-
-# Notification 관련 DTO
-class NotificationItem(BaseModel):
-    """알림 항목"""
-    notification_id: int
-    voice_id: int
-    name: str
-    top_emotion: Optional[str] = None
-    created_at: str  # ISO 형식
-
-
-class NotificationListResponse(BaseModel):
-    """알림 목록 응답"""
-    notifications: List[NotificationItem]
-
-
 # Top Emotion 관련 DTO
 class TopEmotionResponse(BaseModel):
     """그날의 대표 emotion 응답"""
     date: str  # YYYY-MM-DD
-    top_emotion: Optional[str] = None
-
-
-class CareTopEmotionResponse(BaseModel):
-    """보호자용 그날의 대표 emotion 응답"""
-    date: str  # YYYY-MM-DD
-    user_name: str  # 연결된 유저 이름
     top_emotion: Optional[str] = None
 
 
@@ -118,17 +89,6 @@ class VoiceListItem(BaseModel):
 class UserVoiceListResponse(BaseModel):
     success: bool
     voices: list[VoiceListItem]
-
-
-class CareVoiceListItem(BaseModel):
-    voice_id: int
-    created_at: str
-    emotion: Optional[str] = None
-
-
-class CareUserVoiceListResponse(BaseModel):
-    success: bool
-    voices: list[CareVoiceListItem]
 
 
 class UserVoiceDetailResponse(BaseModel):

@@ -28,29 +28,33 @@ def _send_composite_completion_notification(session: Session, voice_id: int):
         return  # 연결된 CARE 사용자가 없으면 알림 발송 안 함
     
     # 4. voice_composite에서 top_emotion 조회
-    from ..models import VoiceComposite
+    from ..models import VoiceComposite, Notification
     voice_composite = session.query(VoiceComposite).filter(
         VoiceComposite.voice_id == voice_id
     ).first()
     top_emotion = voice_composite.top_emotion if voice_composite else None
-    
+
     # 5. 알림 기록 생성 (DB 저장) - FCM 실패와 무관하게 반드시 저장
     try:
-        from ..repositories.notification_repo import create_notification
-        notification = create_notification(
-            session=session,
+        notification = Notification(
             voice_id=voice_id,
             name=user.name,
             top_emotion=top_emotion
         )
+        session.add(notification)
+        session.commit()
+        session.refresh(notification)
+
         import logging
-        logging.info(f"Notification record created: notification_id={notification.notification_id}, voice_id={voice_id}")
+        logging.info(
+            f"Notification record created: notification_id={notification.notification_id}, voice_id={voice_id}"
+        )
     except Exception as e:
         import logging
         logging.error(f"Failed to create notification record: {str(e)}")
         # Notification 생성 실패는 전체 프로세스 중단
         return
-    
+
     # FCM 푸시 알림은 비활성화 상태이므로 DB Notification 저장까지만 수행
 
 
