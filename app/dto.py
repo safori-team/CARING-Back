@@ -49,27 +49,6 @@ class CareInfoResponse(BaseModel):
     connected_user_name: Optional[str] = None  # 연결된 피보호자 이름 (없으면 null)
 
 
-# FCM 관련 DTO
-class FcmTokenRegisterRequest(BaseModel):
-    """FCM 토큰 등록 요청"""
-    fcm_token: str
-    device_id: Optional[str] = None  # 기기 식별자
-    platform: Optional[str] = None  # 'ios', 'android', 'web'
-
-
-class FcmTokenRegisterResponse(BaseModel):
-    """FCM 토큰 등록 응답"""
-    message: str
-    token_id: int
-    is_active: bool
-
-
-class FcmTokenDeactivateResponse(BaseModel):
-    """FCM 토큰 비활성화 응답"""
-    message: str
-    deactivated_count: int
-
-
 # Notification 관련 DTO
 class NotificationItem(BaseModel):
     """알림 항목"""

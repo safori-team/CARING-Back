@@ -194,31 +194,6 @@ class VoiceJobProcess(Base):
     voice = relationship("Voice", back_populates="voice_job_process", uselist=False)
 
 
-class FcmToken(Base):
-    """FCM 토큰 관리 테이블"""
-    __tablename__ = "fcm_token"
-    
-    token_id = Column(BigInteger, primary_key=True, autoincrement=True)
-    user_id = Column(BigInteger, ForeignKey("user.user_id", ondelete="CASCADE"), nullable=False)
-    fcm_token = Column(String(255), nullable=False)  # FCM 토큰
-    device_id = Column(String(255), nullable=True)  # 기기 식별자
-    platform = Column(String(20), nullable=True)  # 'ios', 'android', 'web'
-    is_active = Column(SmallInteger, nullable=False, default=1)  # 1=활성, 0=비활성
-    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
-    updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
-    
-    # 관계
-    user = relationship("User", backref="fcm_tokens")
-    
-    # 인덱스 및 제약 조건
-    __table_args__ = (
-        UniqueConstraint('user_id', 'device_id', name='uq_fcm_user_device'),
-        Index('idx_fcm_token', 'fcm_token'),
-        Index('idx_user_active', 'user_id', 'is_active'),
-        Index('idx_device_token', 'device_id', 'fcm_token'),
-    )
-
-
 class Notification(Base):
     """알림 기록 테이블"""
     __tablename__ = "notification"

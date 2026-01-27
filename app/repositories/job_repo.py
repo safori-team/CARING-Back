@@ -4,50 +4,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from ..models import VoiceJobProcess, Voice, User
 from ..services.composite_service import CompositeService
-import threading
-
-
-def _send_fcm_notification_background(voice_id: int, care_user_id: int, user_name: str, username: str):
-    """FCM 알림 전송을 백그라운드 스레드에서 실행"""
-    try:
-        from ..database import SessionLocal
-        from ..services.fcm_service import FcmService
-        
-        # 새로운 세션 생성 (스레드 안전)
-        db = SessionLocal()
-        try:
-            fcm_service = FcmService(db)
-            
-            # 알림 제목 및 내용
-            title = "마음일기가 도착했어요!"
-            body = f"지금 {user_name} 님이 마음일기를 남겼으니 확인해보세요!"
-
-            
-            # 알림 데이터 (앱에서 음성 상세 페이지로 이동할 수 있도록)
-            data = {
-                "type": "voice_composite_completed",
-                "voice_id": str(voice_id),
-                "user_name": user_name,
-                "username": username
-            }
-            
-            # CARE 사용자에게 알림 발송
-            result = fcm_service.send_notification_to_user(
-                user_id=care_user_id,
-                title=title,
-                body=body,
-                data=data
-            )
-            
-            import logging
-            logging.info(f"FCM notification sent to CARE user (user_id={care_user_id}, voice_id={voice_id}): {result}")
-        finally:
-            db.close()
-    
-    except Exception as e:
-        # FCM 전송 실패해도 Notification은 이미 저장되었으므로 로그만 남기고 계속 진행
-        import logging
-        logging.warning(f"FCM notification failed but notification record was saved (voice_id={voice_id}): {str(e)}")
 
 
 def _send_composite_completion_notification(session: Session, voice_id: int):
@@ -95,15 +51,7 @@ def _send_composite_completion_notification(session: Session, voice_id: int):
         # Notification 생성 실패는 전체 프로세스 중단
         return
     
-    # 6. FCM 알림 발송을 백그라운드 스레드에서 비동기로 실행
-    thread = threading.Thread(
-        target=_send_fcm_notification_background,
-        args=(voice_id, care_user.user_id, user.name, user.username),
-        daemon=True  # 메인 프로세스 종료 시 함께 종료
-    )
-    thread.start()
-    import logging
-    logging.info(f"FCM notification task started in background for voice_id={voice_id}, care_user_id={care_user.user_id}")
+    # FCM 푸시 알림은 비활성화 상태이므로 DB Notification 저장까지만 수행
 
 
 def ensure_job_row(session: Session, voice_id: int) -> VoiceJobProcess:
